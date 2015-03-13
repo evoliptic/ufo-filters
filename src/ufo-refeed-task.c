@@ -25,6 +25,7 @@ struct _UfoRefeedTaskPrivate {
     GList *current;
     gboolean refeed;
     gboolean inserted;
+    UfoRequisition requisition;
 };
 
 static void ufo_task_interface_init (UfoTaskIface *iface);
@@ -61,7 +62,20 @@ ufo_refeed_task_get_requisition (UfoTask *task,
                                  UfoBuffer **inputs,
                                  UfoRequisition *requisition)
 {
-    ufo_buffer_get_requisition (inputs[0], requisition);
+    UfoRefeedTaskPrivate *priv;
+
+    priv = UFO_REFEED_TASK_GET_PRIVATE (task);
+
+    if (!priv->refeed) {
+        ufo_buffer_get_requisition (inputs[0], requisition);
+        ufo_buffer_get_requisition (inputs[0], &priv->requisition);
+    }
+    else {
+        requisition->n_dims = priv->requisition.n_dims;
+        requisition->dims[0] = priv->requisition.dims[0];
+        requisition->dims[1] = priv->requisition.dims[1];
+        requisition->dims[2] = priv->requisition.dims[2];
+    }
 }
 
 static guint
@@ -96,20 +110,26 @@ ufo_refeed_task_process (UfoTask *task,
 
     priv = UFO_REFEED_TASK_GET_PRIVATE (task);
 
-    if (!priv->refeed) {
-        priv->buffers = g_list_append (priv->buffers,
-                                       ufo_buffer_dup (inputs[0]));
-        ufo_buffer_copy (inputs[0], output);
-        return TRUE;
-    }
-    else {
-        if (priv->current == NULL)
-            return FALSE;
+    priv->buffers = g_list_append (priv->buffers, ufo_buffer_dup (inputs[0]));
+    ufo_buffer_copy (inputs[0], output);
+    return TRUE;
+}
 
-        ufo_buffer_copy (UFO_BUFFER (priv->current->data), output);
-        priv->current = g_list_next (priv->current);
-        return TRUE;
-    }
+static gboolean
+ufo_refeed_task_generate (UfoTask *task,
+                          UfoBuffer *output,
+                          UfoRequisition *requisition)
+{
+    UfoRefeedTaskPrivate *priv;
+
+    priv = UFO_REFEED_TASK_GET_PRIVATE (task);
+
+    if (priv->current == NULL)
+        return FALSE;
+
+    ufo_buffer_copy (UFO_BUFFER (priv->current->data), output);
+    priv->current = g_list_next (priv->current);
+    return TRUE;
 }
 
 static void
@@ -143,6 +163,7 @@ ufo_task_interface_init (UfoTaskIface *iface)
     iface->get_mode = ufo_refeed_task_get_mode;
     iface->get_requisition = ufo_refeed_task_get_requisition;
     iface->process = ufo_refeed_task_process;
+    iface->generate = ufo_refeed_task_generate;
 }
 
 static void
